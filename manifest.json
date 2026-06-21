@@ -1,15 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Subtabs",
-  "version": "1.0.0",
-  "description": "A container tab that holds sub-tabs you can tile vertically or horizontally.",
+  "version": "2.0.0",
+  "description": "Tile several pages in one tab. The whole layout lives in the URL, so a bookmark is a saved workspace. Each tile has a live address bar.",
   "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_title": "Open Subtabs"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "run_at": "document_start",
+      "js": ["frame-tracker.js"]
+    }
+  ],
   "icons": {
     "128": "icons/icon128.png"
   }

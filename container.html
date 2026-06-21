@@ -8,8 +8,7 @@
 </head>
 <body>
   <header id="topbar">
-    <div id="tabstrip" aria-label="Sub-tabs"></div>
-    <button id="addTab" class="icon-btn" title="New sub-tab">+</button>
+    <span id="brand">Subtabs</span>
 
     <div id="layouts" role="group" aria-label="Layout">
       <button class="layout-btn" data-layout="single"  title="Single pane">
@@ -25,6 +24,8 @@
         <svg viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7"/><rect x="11" y="2" width="7" height="7"/><rect x="2" y="11" width="7" height="7"/><rect x="11" y="11" width="7" height="7"/></svg>
       </button>
     </div>
+
+    <span id="hint" title="The address bar holds this whole layout — press Ctrl+D to bookmark it as a workspace.">Ctrl+D bookmarks this workspace</span>
   </header>
 
   <main id="panes"></main>

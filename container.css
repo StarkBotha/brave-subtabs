@@ -39,45 +39,20 @@ body {
   flex: 0 0 auto;
 }
 
-#tabstrip {
-  display: flex;
-  gap: 4px;
-  flex: 1 1 auto;
-  overflow-x: auto;
-  scrollbar-width: thin;
+#brand {
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.5px;
+  user-select: none;
 }
 
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 200px;
-  padding: 5px 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  cursor: pointer;
+#hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
   white-space: nowrap;
   user-select: none;
 }
-.tab.active {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent-dim);
-}
-.tab .label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 150px;
-}
-.tab .close {
-  color: var(--muted);
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-family: inherit;
-  padding: 0 2px;
-}
-.tab .close:hover { color: var(--text); }
 
 .icon-btn, .layout-btn {
   flex: 0 0 auto;
@@ -93,8 +68,13 @@ body {
   font-size: 18px; line-height: 1;
 }
 .icon-btn:hover { border-color: var(--accent); }
+.icon-btn.small {
+  width: 26px; height: 26px;
+  font-size: 14px;
+  display: grid; place-items: center;
+}
 
-#layouts { display: flex; gap: 4px; margin-left: 4px; }
+#layouts { display: flex; gap: 4px; }
 .layout-btn {
   width: 32px; height: 30px;
   display: grid; place-items: center;
@@ -139,17 +119,6 @@ body {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
-}
-
-.pane-head select {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  font-family: inherit;
-  font-size: 12px;
-  padding: 3px 4px;
-  max-width: 160px;
 }
 
 .pane-head input.url {

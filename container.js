@@ -1,36 +1,56 @@
 "use strict";
 
+/*
+ * Subtabs v2 — the whole workspace lives in the page URL.
+ *
+ *   container.html?l=<layout>&u=<tile1>&u=<tile2>...
+ *
+ * State is derived from the query string on load and written back to it (via
+ * history.replaceState) on every change, so the browser address bar always
+ * reflects what's on screen. Ctrl+D therefore bookmarks the current layout —
+ * a bookmark IS a workspace. A small "last view" copy is kept in
+ * chrome.storage.local only so the toolbar icon can reopen your last arrangement
+ * when launched with no query string.
+ */
+
 const PANE_COUNT = { single: 1, vertical: 2, horizontal: 2, grid: 4 };
 
 const state = {
-  subtabs: [],          // { id, title, url }
   layout: "single",
-  panes: [null],        // subtab id per pane slot
-  active: null          // active subtab id (for the strip + single layout)
+  tiles: [{ url: "" }]   // one { url } per visible pane, in slot order
 };
 
-const $strip   = document.getElementById("tabstrip");
 const $panes   = document.getElementById("panes");
-const $addTab  = document.getElementById("addTab");
 const $layouts = document.getElementById("layouts");
 
-/* ---------- persistence ---------- */
-async function save() {
-  await chrome.storage.local.set({ subtabsState: state });
+/* ---------- url <-> state ---------- */
+function readUrl() {
+  const p = new URLSearchParams(location.search);
+  const l = p.get("l");
+  return {
+    present: p.has("l") || p.has("u"),
+    layout: PANE_COUNT[l] ? l : null,
+    urls: p.getAll("u")
+  };
 }
-async function load() {
-  const { subtabsState } = await chrome.storage.local.get("subtabsState");
-  if (subtabsState) Object.assign(state, subtabsState);
-  if (state.subtabs.length === 0) addSubtab("https://", false);
-  resizePanes(false);
+
+function writeUrl() {
+  const p = new URLSearchParams();
+  p.set("l", state.layout);
+  for (const t of state.tiles) p.append("u", t.url || "");
+  const u = new URL(location.href);
+  u.search = p.toString();
+  history.replaceState(null, "", u);
+  saveSoon();
+}
+
+let saveTimer;
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => chrome.storage.local.set({ subtabsLast: state }), 400);
 }
 
 /* ---------- helpers ---------- */
-function uid() {
-  return (crypto.randomUUID && crypto.randomUUID()) ||
-         Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
 function normalizeUrl(raw) {
   let url = (raw || "").trim();
   if (!url) return "";
@@ -40,197 +60,171 @@ function normalizeUrl(raw) {
   return url;
 }
 
-function labelFor(url) {
-  try { return new URL(url).hostname || "new tab"; }
-  catch { return "new tab"; }
+// Build a tiles array of the right length for a layout, carrying over URLs.
+function fitTiles(layout, urls) {
+  const n = PANE_COUNT[layout] || 1;
+  const tiles = [];
+  for (let i = 0; i < n; i++) tiles.push({ url: urls[i] || "" });
+  return tiles;
 }
 
-function getSubtab(id) {
-  return state.subtabs.find(t => t.id === id) || null;
+/* ---------- load ---------- */
+async function load() {
+  const fromUrl = readUrl();
+  let layout = "single";
+  let urls = [];
+
+  if (fromUrl.present) {
+    layout = fromUrl.layout || "single";
+    urls = fromUrl.urls;
+  } else {
+    const { subtabsLast } = await chrome.storage.local.get("subtabsLast");
+    if (subtabsLast && Array.isArray(subtabsLast.tiles)) {
+      layout = PANE_COUNT[subtabsLast.layout] ? subtabsLast.layout : "single";
+      urls = subtabsLast.tiles.map(t => t.url || "");
+    }
+  }
+
+  state.layout = layout;
+  state.tiles = fitTiles(layout, urls);
+  writeUrl();   // normalise the address bar (fills in defaults, drops junk params)
 }
 
 /* ---------- mutations ---------- */
-function addSubtab(url = "https://", render = true) {
-  const tab = { id: uid(), url, title: labelFor(url) };
-  state.subtabs.push(tab);
-  state.active = tab.id;
-  // drop it into the first empty pane slot, if any
-  const slot = state.panes.indexOf(null);
-  if (slot !== -1) state.panes[slot] = tab.id;
-  if (render) { renderAll(); save(); }
-  return tab;
-}
-
-function closeSubtab(id) {
-  state.subtabs = state.subtabs.filter(t => t.id !== id);
-  state.panes = state.panes.map(p => (p === id ? null : p));
-  if (state.active === id) state.active = state.subtabs[0]?.id ?? null;
-  if (state.subtabs.length === 0) addSubtab("https://", false);
-  renderAll();
-  save();
-}
-
 function setLayout(layout) {
+  if (!PANE_COUNT[layout] || layout === state.layout) return;
   state.layout = layout;
-  resizePanes(true);
+  state.tiles = fitTiles(layout, state.tiles.map(t => t.url));
+  writeUrl();
+  renderAll();
 }
 
-function resizePanes(doRender) {
-  const want = PANE_COUNT[state.layout];
-  const next = state.panes.slice(0, want);
-  // fill any new/empty slots with not-yet-shown subtabs, else first subtab
-  for (let i = 0; i < want; i++) {
-    if (!next[i]) {
-      const unused = state.subtabs.find(t => !next.includes(t.id));
-      next[i] = unused ? unused.id : (state.subtabs[0]?.id ?? null);
-    }
-  }
-  state.panes = next;
-  if (doRender) { renderAll(); save(); }
+// Explicit navigation (typed a URL + Enter): reload just this tile.
+function navigateTile(slot, raw) {
+  const tile = state.tiles[slot];
+  if (!tile) return;
+  tile.url = normalizeUrl(raw);
+  writeUrl();
+  refreshBody(slot);
 }
 
-function assignPane(slot, id) {
-  state.panes[slot] = id || null;
-  state.active = id || state.active;
-  renderStrip();
-  renderPanes();
-  save();
-}
-
-function navigatePane(slot, rawUrl) {
-  const id = state.panes[slot];
-  const tab = getSubtab(id);
-  if (!tab) return;
-  tab.url = normalizeUrl(rawUrl);
-  tab.title = labelFor(tab.url);
-  renderStrip();
-  renderPanes();
-  save();
+// In-page navigation reported by the content script: update the bar + URL, but
+// do NOT reload the iframe (it's already there).
+function liveUpdate(slot, url) {
+  const tile = state.tiles[slot];
+  if (!tile || !url || tile.url === url) return;
+  tile.url = url;
+  const bar = $panes.querySelector(`.pane[data-slot="${slot}"] input.url`);
+  if (bar && document.activeElement !== bar) bar.value = url;
+  writeUrl();
 }
 
 /* ---------- rendering ---------- */
-function renderStrip() {
-  $strip.innerHTML = "";
-  for (const tab of state.subtabs) {
-    const el = document.createElement("div");
-    el.className = "tab" + (tab.id === state.active ? " active" : "");
-    el.title = tab.url;
-
-    const label = document.createElement("span");
-    label.className = "label";
-    label.textContent = tab.title || "new tab";
-    el.appendChild(label);
-
-    const close = document.createElement("button");
-    close.className = "close";
-    close.textContent = "×";
-    close.title = "Close sub-tab";
-    close.addEventListener("click", (e) => { e.stopPropagation(); closeSubtab(tab.id); });
-    el.appendChild(close);
-
-    // clicking a sub-tab loads it into the first pane and marks it active
-    el.addEventListener("click", () => {
-      state.active = tab.id;
-      state.panes[0] = tab.id;
-      renderStrip();
-      renderPanes();
-      save();
-    });
-
-    $strip.appendChild(el);
-  }
-}
-
 function renderLayoutButtons() {
   for (const btn of $layouts.querySelectorAll(".layout-btn")) {
     btn.classList.toggle("active", btn.dataset.layout === state.layout);
   }
 }
 
+// The body (iframe or empty hint) for one slot — rebuilt on navigation/reload.
+function buildBody(slot) {
+  const tile = state.tiles[slot];
+  const body = document.createElement("div");
+  body.className = "pane-body";
+
+  if (tile.url) {
+    const frame = document.createElement("iframe");
+    frame.src = tile.url;
+    frame.referrerPolicy = "no-referrer";
+    frame.dataset.slot = slot;
+    // Handshake: once the framed page is up, tell our content script to start
+    // reporting its URL. Fires again on every in-frame navigation.
+    frame.addEventListener("load", () => {
+      try { frame.contentWindow.postMessage({ __subtabs: "init" }, "*"); }
+      catch (_) { /* ignore */ }
+    });
+    body.appendChild(frame);
+
+    const note = document.createElement("div");
+    note.className = "blocked-note";
+    note.textContent = "Blank? This site blocks embedding (X-Frame-Options / CSP).";
+    body.appendChild(note);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "pane-empty";
+    empty.textContent = "Type a URL above and press Enter";
+    body.appendChild(empty);
+  }
+  return body;
+}
+
+function refreshBody(slot) {
+  const pane = $panes.querySelector(`.pane[data-slot="${slot}"]`);
+  if (!pane) return;
+  pane.replaceChild(buildBody(slot), pane.querySelector(".pane-body"));
+}
+
 function renderPanes() {
   $panes.className = state.layout;
   $panes.innerHTML = "";
 
-  state.panes.forEach((id, slot) => {
-    const tab = getSubtab(id);
-
+  state.tiles.forEach((tile, slot) => {
     const pane = document.createElement("div");
     pane.className = "pane";
+    pane.dataset.slot = slot;
 
-    // header: which sub-tab + editable address
     const head = document.createElement("div");
     head.className = "pane-head";
-
-    const select = document.createElement("select");
-    select.title = "Show sub-tab in this pane";
-    const none = document.createElement("option");
-    none.value = ""; none.textContent = "— empty —";
-    select.appendChild(none);
-    for (const t of state.subtabs) {
-      const opt = document.createElement("option");
-      opt.value = t.id;
-      opt.textContent = t.title || "new tab";
-      if (t.id === id) opt.selected = true;
-      select.appendChild(opt);
-    }
-    select.addEventListener("change", () => assignPane(slot, select.value));
-    head.appendChild(select);
 
     const urlInput = document.createElement("input");
     urlInput.className = "url";
     urlInput.type = "text";
     urlInput.placeholder = "https://your-dashboard.local …";
-    urlInput.value = tab ? tab.url : "";
-    urlInput.disabled = !tab;
+    urlInput.value = tile.url || "";
     urlInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") navigatePane(slot, urlInput.value);
+      if (e.key === "Enter") { navigateTile(slot, urlInput.value); urlInput.blur(); }
     });
     urlInput.addEventListener("blur", () => {
-      if (tab && normalizeUrl(urlInput.value) !== tab.url) navigatePane(slot, urlInput.value);
+      if (normalizeUrl(urlInput.value) !== tile.url) navigateTile(slot, urlInput.value);
     });
     head.appendChild(urlInput);
 
+    const reload = document.createElement("button");
+    reload.className = "icon-btn small";
+    reload.textContent = "⟳";
+    reload.title = "Reload tile";
+    reload.addEventListener("click", () => refreshBody(slot));
+    head.appendChild(reload);
+
     pane.appendChild(head);
-
-    // body: iframe or empty hint
-    const body = document.createElement("div");
-    body.className = "pane-body";
-
-    if (tab && tab.url && tab.url !== "https://") {
-      const frame = document.createElement("iframe");
-      frame.src = tab.url;
-      frame.referrerPolicy = "no-referrer";
-      body.appendChild(frame);
-
-      const note = document.createElement("div");
-      note.className = "blocked-note";
-      note.textContent = "Blank? This site blocks embedding (X-Frame-Options / CSP). Your own sites can allow it.";
-      body.appendChild(note);
-    } else {
-      const empty = document.createElement("div");
-      empty.className = "pane-empty";
-      empty.textContent = tab
-        ? "Type a URL above and press Enter"
-        : "Pick a sub-tab for this pane";
-      body.appendChild(empty);
-    }
-
-    pane.appendChild(body);
+    pane.appendChild(buildBody(slot));
     $panes.appendChild(pane);
   });
 }
 
 function renderAll() {
-  renderStrip();
   renderLayoutButtons();
   renderPanes();
 }
 
 /* ---------- events ---------- */
-$addTab.addEventListener("click", () => addSubtab("https://"));
 $layouts.addEventListener("click", (e) => {
   const btn = e.target.closest(".layout-btn");
   if (btn) setLayout(btn.dataset.layout);
+});
+
+// Live URL reports from tile content scripts. Match the message to a tile by
+// the identity of the iframe's contentWindow (reference compare is allowed even
+// cross-origin).
+window.addEventListener("message", (e) => {
+  const d = e.data;
+  if (!d || d.__subtabs !== "url") return;
+  for (const frame of $panes.querySelectorAll("iframe")) {
+    if (frame.contentWindow === e.source) {
+      liveUpdate(Number(frame.dataset.slot), d.url);
+      break;
+    }
+  }
 });
 
 load().then(renderAll);

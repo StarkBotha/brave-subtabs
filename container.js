@@ -60,11 +60,28 @@ function normalizeUrl(raw) {
   return url;
 }
 
+// Only http(s) may ever reach an iframe src. Blocks javascript:, data:, blob:,
+// file:, chrome: etc. — a javascript: URL in an iframe runs in THIS extension
+// page's privileged origin, and tile URLs come from the (shareable) page query
+// string, so this must be enforced everywhere a URL can enter a tile.
+function safeHttpUrl(raw) {
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    return (u.protocol === "http:" || u.protocol === "https:") ? u.href : "";
+  } catch { return ""; }
+}
+
+// Normalise a typed/stored value, then enforce the http(s) allowlist.
+function cleanUrl(raw) {
+  return safeHttpUrl(normalizeUrl(raw));
+}
+
 // Build a tiles array of the right length for a layout, carrying over URLs.
 function fitTiles(layout, urls) {
   const n = PANE_COUNT[layout] || 1;
   const tiles = [];
-  for (let i = 0; i < n; i++) tiles.push({ url: urls[i] || "" });
+  for (let i = 0; i < n; i++) tiles.push({ url: cleanUrl(urls[i]) });
   return tiles;
 }
 
@@ -103,7 +120,7 @@ function setLayout(layout) {
 function navigateTile(slot, raw) {
   const tile = state.tiles[slot];
   if (!tile) return;
-  tile.url = normalizeUrl(raw);
+  tile.url = cleanUrl(raw);
   writeUrl();
   refreshBody(slot);
 }
@@ -112,10 +129,11 @@ function navigateTile(slot, raw) {
 // do NOT reload the iframe (it's already there).
 function liveUpdate(slot, url) {
   const tile = state.tiles[slot];
-  if (!tile || !url || tile.url === url) return;
-  tile.url = url;
+  const safe = safeHttpUrl(url);
+  if (!tile || !safe || tile.url === safe) return;
+  tile.url = safe;
   const bar = $panes.querySelector(`.pane[data-slot="${slot}"] input.url`);
-  if (bar && document.activeElement !== bar) bar.value = url;
+  if (bar && document.activeElement !== bar) bar.value = safe;
   writeUrl();
 }
 
@@ -185,7 +203,7 @@ function renderPanes() {
       if (e.key === "Enter") { navigateTile(slot, urlInput.value); urlInput.blur(); }
     });
     urlInput.addEventListener("blur", () => {
-      if (normalizeUrl(urlInput.value) !== tile.url) navigateTile(slot, urlInput.value);
+      if (cleanUrl(urlInput.value) !== tile.url) navigateTile(slot, urlInput.value);
     });
     head.appendChild(urlInput);
 

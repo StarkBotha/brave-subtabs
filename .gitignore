@@ -1,0 +1,9 @@
+# Build/distribution archives
+*.zip
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

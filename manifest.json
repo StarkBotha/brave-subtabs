@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Subtabs",
+  "version": "1.0.0",
+  "description": "A container tab that holds sub-tabs you can tile vertically or horizontally.",
+  "permissions": ["storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Subtabs"
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}

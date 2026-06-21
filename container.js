@@ -127,14 +127,25 @@ function navigateTile(slot, raw) {
 
 // In-page navigation reported by the content script: update the bar + URL, but
 // do NOT reload the iframe (it's already there).
-function liveUpdate(slot, url) {
+function liveUpdate(slot, url, title) {
   const tile = state.tiles[slot];
+  if (!tile) return;
+  if (typeof title === "string") tile.title = title;
   const safe = safeHttpUrl(url);
-  if (!tile || !safe || tile.url === safe) return;
-  tile.url = safe;
-  const bar = $panes.querySelector(`.pane[data-slot="${slot}"] input.url`);
-  if (bar && document.activeElement !== bar) bar.value = safe;
-  writeUrl();
+  if (safe && tile.url !== safe) {
+    tile.url = safe;
+    const bar = $panes.querySelector(`.pane[data-slot="${slot}"] input.url`);
+    if (bar && document.activeElement !== bar) bar.value = safe;
+    writeUrl();
+  }
+  updateDocTitle();
+}
+
+// The browser tab title follows the first tile's page title (falls back to the
+// app name). Title is derived/transient — never stored in the workspace URL.
+function updateDocTitle() {
+  const first = state.tiles[0];
+  document.title = (first && first.title) ? first.title : "Subtabs";
 }
 
 /* ---------- rendering ---------- */
@@ -223,6 +234,7 @@ function renderPanes() {
 function renderAll() {
   renderLayoutButtons();
   renderPanes();
+  updateDocTitle();
 }
 
 /* ---------- events ---------- */
@@ -239,7 +251,7 @@ window.addEventListener("message", (e) => {
   if (!d || d.__subtabs !== "url") return;
   for (const frame of $panes.querySelectorAll("iframe")) {
     if (frame.contentWindow === e.source) {
-      liveUpdate(Number(frame.dataset.slot), d.url);
+      liveUpdate(Number(frame.dataset.slot), d.url, d.title);
       break;
     }
   }

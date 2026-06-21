@@ -18,7 +18,10 @@
     if (!armed) return;
     try {
       // Deliver only to the extension origin — never to some other parent.
-      window.parent.postMessage({ __subtabs: "url", url: location.href }, EXT_ORIGIN);
+      window.parent.postMessage(
+        { __subtabs: "url", url: location.href, title: document.title },
+        EXT_ORIGIN
+      );
     } catch (_) { /* parent gone — ignore */ }
   };
 
@@ -49,9 +52,14 @@
       // Reliable fallback: watch our own location and report when it changes.
       // Reading location works fine from the isolated world, so this catches
       // SPA route changes the history hooks miss. The container dedupes repeats.
-      let last = location.href;
+      let lastUrl = location.href;
+      let lastTitle = document.title;
       setInterval(() => {
-        if (location.href !== last) { last = location.href; report(); }
+        if (location.href !== lastUrl || document.title !== lastTitle) {
+          lastUrl = location.href;
+          lastTitle = document.title;
+          report();
+        }
       }, 700);
     }
     report();

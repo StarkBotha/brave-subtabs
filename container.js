@@ -127,10 +127,11 @@ function navigateTile(slot, raw) {
 
 // In-page navigation reported by the content script: update the bar + URL, but
 // do NOT reload the iframe (it's already there).
-function liveUpdate(slot, url, title) {
+function liveUpdate(slot, url, title, icon) {
   const tile = state.tiles[slot];
   if (!tile) return;
   if (typeof title === "string") tile.title = title;
+  if (typeof icon === "string") tile.icon = icon;
   const safe = safeHttpUrl(url);
   if (safe && tile.url !== safe) {
     tile.url = safe;
@@ -138,14 +139,33 @@ function liveUpdate(slot, url, title) {
     if (bar && document.activeElement !== bar) bar.value = safe;
     writeUrl();
   }
-  updateDocTitle();
+  updateTabIdentity();
 }
 
-// The browser tab title follows the first tile's page title (falls back to the
-// app name). Title is derived/transient — never stored in the workspace URL.
-function updateDocTitle() {
+// The browser tab's title and favicon follow the first tile (falling back to the
+// app name / extension icon). Both are derived/transient — never stored in the
+// workspace URL.
+function updateTabIdentity() {
   const first = state.tiles[0];
   document.title = (first && first.title) ? first.title : "Subtabs";
+
+  let link = document.querySelector("link[rel='icon']");
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  const icon = first && safeIconUrl(first.icon);
+  link.href = icon || chrome.runtime.getURL("icons/icon128.png");
+}
+
+// Favicons may be http(s) or inline data: images. Reject anything else.
+function safeIconUrl(raw) {
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    return ["http:", "https:", "data:"].includes(u.protocol) ? u.href : "";
+  } catch { return ""; }
 }
 
 /* ---------- rendering ---------- */
@@ -234,7 +254,7 @@ function renderPanes() {
 function renderAll() {
   renderLayoutButtons();
   renderPanes();
-  updateDocTitle();
+  updateTabIdentity();
 }
 
 /* ---------- events ---------- */
@@ -251,7 +271,7 @@ window.addEventListener("message", (e) => {
   if (!d || d.__subtabs !== "url") return;
   for (const frame of $panes.querySelectorAll("iframe")) {
     if (frame.contentWindow === e.source) {
-      liveUpdate(Number(frame.dataset.slot), d.url, d.title);
+      liveUpdate(Number(frame.dataset.slot), d.url, d.title, d.icon);
       break;
     }
   }

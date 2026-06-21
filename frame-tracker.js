@@ -14,12 +14,24 @@
 
   let armed = false;
 
+  // The page's declared favicon, resolved to an absolute URL. Falls back to the
+  // conventional /favicon.ico. Last declared <link rel=icon> wins.
+  const favicon = () => {
+    const links = document.querySelectorAll("link[rel~='icon']");
+    const href = links.length ? links[links.length - 1].getAttribute("href") : null;
+    try {
+      return href ? new URL(href, location.href).href : (location.origin + "/favicon.ico");
+    } catch (_) {
+      return location.origin + "/favicon.ico";
+    }
+  };
+
   const report = () => {
     if (!armed) return;
     try {
       // Deliver only to the extension origin — never to some other parent.
       window.parent.postMessage(
-        { __subtabs: "url", url: location.href, title: document.title },
+        { __subtabs: "url", url: location.href, title: document.title, icon: favicon() },
         EXT_ORIGIN
       );
     } catch (_) { /* parent gone — ignore */ }

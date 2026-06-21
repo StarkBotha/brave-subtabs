@@ -30,7 +30,11 @@
 
     if (!armed) {
       armed = true;
-      // Catch SPA route changes that don't fire a full load.
+
+      // Instant signals for the cases they cover. NOTE: patching history here
+      // only catches OUR isolated world — the page's own pushState (most SPA
+      // routing) happens in the main world and is invisible to us, which is why
+      // the poll below is the real workhorse.
       for (const m of ["pushState", "replaceState"]) {
         const orig = history[m];
         history[m] = function (...args) {
@@ -41,6 +45,14 @@
       }
       window.addEventListener("popstate", report);
       window.addEventListener("hashchange", report);
+
+      // Reliable fallback: watch our own location and report when it changes.
+      // Reading location works fine from the isolated world, so this catches
+      // SPA route changes the history hooks miss. The container dedupes repeats.
+      let last = location.href;
+      setInterval(() => {
+        if (location.href !== last) { last = location.href; report(); }
+      }, 700);
     }
     report();
   });
